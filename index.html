@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto Add Money</title>
+    <!-- Telegram Web App API -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: var(--tg-theme-bg-color, #1e1e1e); color: var(--tg-theme-text-color, #ffffff); padding: 20px; text-align: center; }
+        .container { max-width: 400px; margin: 0 auto; background: var(--tg-theme-secondary-bg-color, #2a2a2a); padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        select, input { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: 1px solid #444; background: var(--tg-theme-bg-color, #1e1e1e); color: var(--tg-theme-text-color, #ffffff); font-size: 16px; box-sizing: border-box; }
+        .info-box { background-color: #333; padding: 10px; border-radius: 8px; margin: 15px 0; font-size: 14px; display: none; }
+        .number-text { font-size: 18px; font-weight: bold; color: #4CAF50; margin: 5px 0; }
+        .btn { background-color: var(--tg-theme-button-color, #2481cc); color: var(--tg-theme-button-text-color, #ffffff); border: none; padding: 12px; border-radius: 8px; font-size: 16px; cursor: pointer; width: 100%; font-weight: bold; margin-top: 10px; }
+        .btn:disabled { background-color: gray; cursor: not-allowed; }
+        #status { margin-top: 15px; font-size: 14px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>অটো ডিপোজিট</h2>
+        <p>পেমেন্ট মেথড সিলেক্ট করুন:</p>
+        
+        <select id="paymentMethod" onchange="showMethodInfo()">
+            <option value="" disabled selected>-- মেথড সিলেক্ট করুন --</option>
+            <option value="bkash">bKash (বিকাশ)</option>
+            <option value="nagad">Nagad (নগদ)</option>
+            <option value="rocket">Rocket (রকেট)</option>
+        </select>
+
+        <div id="methodInfo" class="info-box">
+            <p>নিচের নাম্বারে টাকা সেন্ড মানি করুন:</p>
+            <p class="number-text" id="agentNumber">01XXXXXXXXX</p>
+            <p style="font-size: 12px; color: #ccc;">টাকা পাঠানোর পর ট্রানজেকশন আইডি নিচে দিন।</p>
+        </div>
+
+        <input type="text" id="trxId" placeholder="Transaction ID (e.g. 9J2A4BC8XYZ)">
+        <button id="verifyBtn" class="btn">রিকোয়েস্ট করুন</button>
+        <p id="status"></p>
+    </div>
+
+    <!-- Firebase SDK Setup -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getDatabase, ref, get, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+        // আপনার Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyBQU9-66TCvULxcxeK61Adrayr9aHoGXNc",
+            authDomain: "aoto-2daec.firebaseapp.com",
+            databaseURL: "https://aoto-2daec-default-rtdb.firebaseio.com",
+            projectId: "aoto-2daec",
+            storageBucket: "aoto-2daec.firebasestorage.app",
+            messagingSenderId: "1078542454093",
+            appId: "1:1078542454093:web:b2dcd70dbb885edb033b04"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        
+        const tg = window.Telegram.WebApp;
+        tg.expand(); 
+
+        // ইউজারের টেলিগ্রাম আইডি বের করা
+        const user = tg.initDataUnsafe?.user;
+        const tgUserId = user ? user.id : null;
+
+        // আপনার TBC বট থেকে পাওয়া Webhook URL-টি এখানে দিন
+        const TBC_WEBHOOK_URL = "https://api.telebotcreator.com/new-webhook?data=gAAAAABqLPS7340qZUxYhqwKR22K9-qkAkvm73VPWqHgKsmz6OcUEym7vOMPlTx0cnwReTN3DjhhDGd8-OFu69T8LAVlRIwY5dkwO8Ux-_M_4xy4uOYVWhDk8_IBHN04DC3hC-mGz0ze6hX4FqEFfC1qcXNECCJgSmwn77cMtiPi7HjEUhe-gKC6KbcRWYdOiYyOmAigJ441";
+
+        // পেমেন্ট নাম্বারের লিস্ট
+        const numbers = {
+            bkash: "017XXXXXXXX", // আপনার নাম্বার দিন
+            nagad: "018XXXXXXXX", // আপনার নাম্বার দিন
+            rocket: "019XXXXXXXX" // আপনার নাম্বার দিন
+        };
+
+        window.showMethodInfo = function() {
+            const method = document.getElementById("paymentMethod").value;
+            const infoBox = document.getElementById("methodInfo");
+            const numberText = document.getElementById("agentNumber");
+            
+            if (method) {
+                numberText.innerText = numbers[method];
+                infoBox.style.display = "block";
+            }
+        };
+
+        // Verification Logic
+        document.getElementById('verifyBtn').addEventListener('click', async () => {
+            const trxIdInput = document.getElementById('trxId').value.trim();
+            const statusText = document.getElementById('status');
+            const verifyBtn = document.getElementById('verifyBtn');
+
+            if (!trxIdInput) {
+                statusText.innerText = "⚠️ দয়া করে ট্রানজেকশন আইডি দিন!";
+                statusText.style.color = "#ff4d4d";
+                return;
+            }
+
+            if(!tgUserId) {
+                statusText.innerText = "⚠️ টেলিগ্রাম ইউজারের তথ্য পাওয়া যায়নি। দয়া করে টেলিগ্রাম থেকে ওপেন করুন।";
+                statusText.style.color = "#ff4d4d";
+                return;
+            }
+
+            verifyBtn.disabled = true;
+            verifyBtn.innerText = "খুঁজছে... অপেক্ষা করুন";
+            statusText.innerText = "";
+
+            try {
+                // ১. চেক করবে TrxID ইতিমধ্যে ব্যবহার হয়েছে কিনা
+                const usedRef = ref(db, `UsedAutoPayTrx/${trxIdInput}`);
+                const usedSnap = await get(usedRef);
+                
+                if (usedSnap.exists()) {
+                    alert("এই ট্রানজেকশন আইডিটি ইতিমধ্যে ব্যবহারিত হয়েছে!");
+                    statusText.innerText = "❌ এই ট্রানজেকশন আইডিটি ইতিমধ্যে ব্যবহারিত হয়েছে!";
+                    statusText.style.color = "#ff4d4d";
+                    verifyBtn.disabled = false;
+                    verifyBtn.innerText = "রিকোয়েস্ট করুন";
+                    return;
+                }
+
+                // ২. XNXANIKPAY-তে TrxID খুঁজবে
+                const smsRef = ref(db, 'XNXANIKPAY');
+                const smsSnap = await get(smsRef);
+                
+                let foundAmount = null;
+
+                if (smsSnap.exists()) {
+                    smsSnap.forEach((childSnapshot) => {
+                        const data = childSnapshot.val();
+                        if (data.txid === trxIdInput) {
+                            foundAmount = data.amount; 
+                        }
+                    });
+                }
+
+                if (foundAmount) {
+                    // ৩. পাওয়া গেলে এটি UsedAutoPayTrx-এ সেভ করে নিবে
+                    let updateData = {};
+                    updateData[`UsedAutoPayTrx/${trxIdInput}`] = {
+                        amount: foundAmount,
+                        usedBy: tgUserId,
+                        timestamp: new Date().toISOString()
+                    };
+                    await update(ref(db), updateData);
+
+                    statusText.innerText = `✅ সফল! ব্যালেন্স যোগ করা হচ্ছে...`;
+                    statusText.style.color = "#4CAF50";
+
+                    // ৪. TBC Webhook-এ JSON Payload সহ POST Request পাঠানো
+                    try {
+                        const payload = {
+                            user_id: tgUserId,
+                            amount: foundAmount,
+                            trx_id: trxIdInput
+                        };
+
+                        await fetch(TBC_WEBHOOK_URL, {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json"
+                            },
+                            body: JSON.stringify(payload)
+                        });
+
+                        // কাজ শেষ, বট বন্ধ করে দিবে
+                        setTimeout(() => {
+                            tg.close();
+                        }, 2000);
+
+                    } catch (webhookError) {
+                        console.error("Webhook Error:", webhookError);
+                        statusText.innerText = "⚠️ ব্যালেন্স রিকোয়েস্ট পাঠানো হয়েছে কিন্তু সমস্যা হয়েছে।";
+                    }
+
+                } else {
+                    alert("ট্রানজেকশন আইডিটি পাওয়া যায়নি! দয়া করে সঠিক TrxID দিন।");
+                    statusText.innerText = "❌ ট্রানজেকশন আইডি পাওয়া যায়নি!";
+                    statusText.style.color = "#ff4d4d";
+                    verifyBtn.disabled = false;
+                    verifyBtn.innerText = "রিকোয়েস্ট করুন";
+                }
+
+            } catch (error) {
+                console.error(error);
+                statusText.innerText = "⚠️ সার্ভার এরর। আবার চেষ্টা করুন।";
+                statusText.style.color = "#ff4d4d";
+                verifyBtn.disabled = false;
+                verifyBtn.innerText = "রিকোয়েস্ট করুন";
+            }
+        });
+    </script>
+</body>
+</html>
