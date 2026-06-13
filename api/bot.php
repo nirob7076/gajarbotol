@@ -1,10 +1,16 @@
 <?php
-// বটের টোকেন এবং এডমিন আইডি সেট করুন
+// ১. টেলিগ্রাম বটের তথ্য
 define('BOT_TOKEN', '8984011233:AAE26EifT8xVpwqduXYfQzR6EBUWR5FpXlo'); 
 define('ADMIN_ID', '8357251736');
-define('BOT_USERNAME', 'easy_to_use5bot'); // বটের ইউজারনেম দিন (যেমন: @my_bot এর জায়গায় শুধু my_bot)
+define('BOT_USERNAME', 'easy_to_use5bot'); 
 
-// Telegram API Function
+// ২. সুপাবেস ডাটাবেইজের তথ্য
+define('DB_HOST', 'db.eewmopahvxahogfegpcg.supabase.co');
+define('DB_PORT', '5432');
+define('DB_NAME', 'postgres');
+define('DB_USER', 'postgres');
+define('DB_PASS', 'gajarbotol.'); // 👈 এখানে আপনার সুপাবেস পাসওয়ার্ড দিন
+
 function sendTelegramMessage($chat_id, $text, $reply_markup = null) {
     $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/sendMessage";
     $data = [
@@ -18,22 +24,15 @@ function sendTelegramMessage($chat_id, $text, $reply_markup = null) {
     file_get_contents($url . '?' . http_build_query($data));
 }
 
-// SQLite Database কানেকশন
+// PostgreSQL (Supabase) ডাটাবেইজ কানেকশন
 try {
-    $pdo = new PDO('sqlite:/tmp/database.sqlite'); // Vercel এর /tmp ফোল্ডারে রিড-রাইট করা যায়
+    $dsn = "pgsql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME;
+    $pdo = new PDO($dsn, DB_USER, DB_PASS);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    
-    // টেবিল তৈরি করা
-    $pdo->exec("CREATE TABLE IF NOT EXISTS users (
-        chat_id TEXT PRIMARY KEY,
-        balance INTEGER DEFAULT 0,
-        unique_code TEXT UNIQUE
-    )");
 } catch (PDOException $e) {
-    die("Database Error");
+    die("Database Connection Error");
 }
 
-// ইউনিক কোড জেনারেট করার ফাংশন (ইউজার আইডি থাকবে না)
 function generateUniqueCode($pdo) {
     while(true) {
         $code = substr(str_shuffle("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"), 0, 8);
@@ -43,14 +42,12 @@ function generateUniqueCode($pdo) {
     }
 }
 
-// Telegram থেকে আসা ডাটা রিসিভ করা
 $update = json_decode(file_get_contents('php://input'), true);
 
 if (isset($update['message'])) {
     $chat_id = $update['message']['chat']['id'];
     $text = $update['message']['text'];
 
-    // ইউজারের জন্য সুন্দর বাটন
     $keyboard = [
         'keyboard' => [
             [['text' => '📢 রেফার'], ['text' => '💸 উত্তোলন']]
@@ -58,18 +55,15 @@ if (isset($update['message'])) {
         'resize_keyboard' => true
     ];
 
-    // ইউজার ডাটাবেইজে আছে কিনা চেক করা
     $stmt = $pdo->prepare("SELECT * FROM users WHERE chat_id = ?");
-    $stmt->execute([$chat_id]);
+    $stmt->execute([(string)$chat_id]);
     $user = $stmt->fetch();
 
     if (!$user) {
-        // নতুন ইউজার হলে ইউনিক কোড তৈরি করে ডাটাবেইজে সেভ করা
         $unique_code = generateUniqueCode($pdo);
         $stmt = $pdo->prepare("INSERT INTO users (chat_id, balance, unique_code) VALUES (?, 0, ?)");
-        $stmt->execute([$chat_id, $unique_code]);
+        $stmt->execute([(string)$chat_id, $unique_code]);
         
-        // কেউ রেফার করলে তার ব্যালেন্সে ১০ টাকা অ্যাড করা
         if (strpos($text, '/start ') === 0) {
             $ref_code = str_replace('/start ', '', $text);
             $stmt = $pdo->prepare("SELECT chat_id FROM users WHERE unique_code = ?");
@@ -84,32 +78,24 @@ if (isset($update['message'])) {
         $user = ['chat_id' => $chat_id, 'balance' => 0, 'unique_code' => $unique_code];
     }
 
-    // /start কমান্ড দিলে মেসেজ
     if (strpos($text, '/start') === 0) {
         $msg = "✨ <b>আমাদের বটে আপনাকে স্বাগতম!</b> ✨\n\nআপনি রেফার করে টাকা আয় করতে পারবেন। নিচে থেকে আপনার পছন্দের অপশন বেছে নিন।";
         sendTelegramMessage($chat_id, $msg, $keyboard);
     } 
-    
-    // রেফার বাটনে ক্লিক করলে
     elseif ($text == '📢 রেফার') {
         $ref_link = "https://t.me/" . BOT_USERNAME . "?start=" . $user['unique_code'];
         $msg = "🔗 <b>আপনার ইনভাইট লিংক:</b>\n<code>$ref_link</code>\n\nএই লিংক দিয়ে কাউকে জয়েন করালে আপনি পাবেন <b>১০৳</b>।\nআপনার বর্তমান ব্যালেন্স: <b>{$user['balance']}৳</b>";
         sendTelegramMessage($chat_id, $msg, $keyboard);
     } 
-    
-    // উত্তোলন বাটনে ক্লিক করলে
     elseif ($text == '💸 উত্তোলন') {
         if ($user['balance'] > 0) {
             $amount = $user['balance'];
             
-            // এডমিনকে রিকোয়েস্ট পাঠানো
             $admin_msg = "🚨 <b>নতুন উইথড্র রিকোয়েস্ট!</b>\n\n👤 ইউজার আইডি: <code>$chat_id</code>\n💰 টাকার পরিমাণ: <b>$amount ৳</b>";
             sendTelegramMessage(ADMIN_ID, $admin_msg);
             
-            // ইউজারের ব্যালেন্স জিরো করে দেওয়া
-            $pdo->prepare("UPDATE users SET balance = 0 WHERE chat_id = ?")->execute([$chat_id]);
+            $pdo->prepare("UPDATE users SET balance = 0 WHERE chat_id = ?")->execute([(string)$chat_id]);
             
-            // ইউজারকে মেসেজ দেওয়া
             sendTelegramMessage($chat_id, "✅ <b>সবকিছু উত্তোলন হয়েছে অটোমেটিক!</b>\nখুব শীঘ্রই এডমিন আপনার পেমেন্ট করে দেবে।", $keyboard);
         } else {
             sendTelegramMessage($chat_id, "⚠️ আপনার ব্যালেন্সে পর্যাপ্ত টাকা নেই! বেশি করে রেফার করুন।", $keyboard);
