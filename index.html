@@ -4,12 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Auto Add Money</title>
-    <!-- Telegram Web App API -->
+    <!-- Telegram Web App API (এখান থেকেই ইউজারের তথ্য আসবে) -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; background-color: var(--tg-theme-bg-color, #1e1e1e); color: var(--tg-theme-text-color, #ffffff); padding: 20px; text-align: center; }
+        body { font-family: Arial, sans-serif; background-color: var(--tg-theme-bg-color, #1e1e1e); color: var(--tg-theme-text-color, #ffffff); padding: 20px; text-align: center; margin: 0; }
         .container { max-width: 400px; margin: 0 auto; background: var(--tg-theme-secondary-bg-color, #2a2a2a); padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
-        select, input { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: 1px solid #444; background: var(--tg-theme-bg-color, #1e1e1e); color: var(--tg-theme-text-color, #ffffff); font-size: 16px; box-sizing: border-box; }
+        
+        /* Profile Picture CSS */
+        .profile-container { margin-bottom: 20px; }
+        .profile-pic { width: 90px; height: 90px; border-radius: 50%; border: 3px solid var(--tg-theme-button-color, #2481cc); object-fit: cover; }
+        .user-name { font-size: 18px; font-weight: bold; margin-top: 10px; color: var(--tg-theme-text-color, #ffffff); }
+        
+        select, input { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: 1px solid #444; background: var(--tg-theme-bg-color, #1e1e1e); color: var(--tg-theme-text-color, #ffffff); font-size: 16px; box-sizing: border-box; text-align: center; }
         .info-box { background-color: #333; padding: 10px; border-radius: 8px; margin: 15px 0; font-size: 14px; display: none; }
         .number-text { font-size: 18px; font-weight: bold; color: #4CAF50; margin: 5px 0; }
         .btn { background-color: var(--tg-theme-button-color, #2481cc); color: var(--tg-theme-button-text-color, #ffffff); border: none; padding: 12px; border-radius: 8px; font-size: 16px; cursor: pointer; width: 100%; font-weight: bold; margin-top: 10px; }
@@ -20,6 +26,12 @@
 <body>
 
     <div class="container">
+        <!-- প্রোফাইল ছবি ও নাম দেখানোর সেকশন -->
+        <div class="profile-container">
+            <img id="userPhoto" class="profile-pic" src="https://via.placeholder.com/90x90.png?text=No+Photo" alt="Profile Picture">
+            <div id="userName" class="user-name">Loading...</div>
+        </div>
+
         <h2>অটো ডিপোজিট</h2>
         <p>পেমেন্ট মেথড সিলেক্ট করুন:</p>
         
@@ -37,7 +49,7 @@
         </div>
 
         <input type="text" id="trxId" placeholder="Transaction ID (e.g. 9J2A4BC8XYZ)">
-        <button id="verifyBtn" class="btn">রিকোয়েস্ট করুন</button>
+        <button id="verifyBtn" class="btn">ভেরিফাই করুন</button>
         <p id="status"></p>
     </div>
 
@@ -60,21 +72,31 @@
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
         
+        // টেলিগ্রাম Web App ইনিশিয়ালাইজ করা
         const tg = window.Telegram.WebApp;
         tg.expand(); 
 
-        // ইউজারের টেলিগ্রাম আইডি বের করা
+        // ইউজারের তথ্য বের করা ও প্রোফাইলে সেট করা
         const user = tg.initDataUnsafe?.user;
         const tgUserId = user ? user.id : null;
 
-        // আপনার TBC বট থেকে পাওয়া Webhook URL-টি এখানে দিন
+        if (user) {
+            document.getElementById('userName').innerText = user.first_name + " " + (user.last_name || "");
+            if (user.photo_url) {
+                document.getElementById('userPhoto').src = user.photo_url;
+            }
+        } else {
+            document.getElementById('userName').innerText = "Web User";
+        }
+
+        // আপনার দেওয়া TBC Webhook URL
         const TBC_WEBHOOK_URL = "https://api.telebotcreator.com/new-webhook?data=gAAAAABqLPS7340qZUxYhqwKR22K9-qkAkvm73VPWqHgKsmz6OcUEym7vOMPlTx0cnwReTN3DjhhDGd8-OFu69T8LAVlRIwY5dkwO8Ux-_M_4xy4uOYVWhDk8_IBHN04DC3hC-mGz0ze6hX4FqEFfC1qcXNECCJgSmwn77cMtiPi7HjEUhe-gKC6KbcRWYdOiYyOmAigJ441";
 
-        // পেমেন্ট নাম্বারের লিস্ট
+        // পেমেন্ট নাম্বারের লিস্ট (আপনার নাম্বার বসিয়ে নিবেন)
         const numbers = {
-            bkash: "017XXXXXXXX", // আপনার নাম্বার দিন
-            nagad: "018XXXXXXXX", // আপনার নাম্বার দিন
-            rocket: "019XXXXXXXX" // আপনার নাম্বার দিন
+            bkash: "017XXXXXXXX", 
+            nagad: "018XXXXXXXX", 
+            rocket: "019XXXXXXXX" 
         };
 
         window.showMethodInfo = function() {
@@ -88,7 +110,7 @@
             }
         };
 
-        // Verification Logic
+        // Verification Logic (Firebase TrxID Check)
         document.getElementById('verifyBtn').addEventListener('click', async () => {
             const trxIdInput = document.getElementById('trxId').value.trim();
             const statusText = document.getElementById('status');
@@ -101,7 +123,7 @@
             }
 
             if(!tgUserId) {
-                statusText.innerText = "⚠️ টেলিগ্রাম ইউজারের তথ্য পাওয়া যায়নি। দয়া করে টেলিগ্রাম থেকে ওপেন করুন।";
+                statusText.innerText = "⚠️ টেলিগ্রাম ইউজারের তথ্য পাওয়া যায়নি। বটের Web App বাটন থেকে ওপেন করুন।";
                 statusText.style.color = "#ff4d4d";
                 return;
             }
@@ -120,11 +142,11 @@
                     statusText.innerText = "❌ এই ট্রানজেকশন আইডিটি ইতিমধ্যে ব্যবহারিত হয়েছে!";
                     statusText.style.color = "#ff4d4d";
                     verifyBtn.disabled = false;
-                    verifyBtn.innerText = "রিকোয়েস্ট করুন";
+                    verifyBtn.innerText = "ভেরিফাই করুন";
                     return;
                 }
 
-                // ২. XNXANIKPAY-তে TrxID খুঁজবে
+                // ২. ফায়ারবেসে (XNXANIKPAY) TrxID খুঁজবে
                 const smsRef = ref(db, 'XNXANIKPAY');
                 const smsSnap = await get(smsRef);
                 
@@ -140,7 +162,7 @@
                 }
 
                 if (foundAmount) {
-                    // ৩. পাওয়া গেলে এটি UsedAutoPayTrx-এ সেভ করে নিবে
+                    // ৩. পাওয়া গেলে ডাটাবেজে সেভ করে নিবে (যাতে ২য় বার কেউ ব্যবহার করতে না পারে)
                     let updateData = {};
                     updateData[`UsedAutoPayTrx/${trxIdInput}`] = {
                         amount: foundAmount,
@@ -152,7 +174,7 @@
                     statusText.innerText = `✅ সফল! ব্যালেন্স যোগ করা হচ্ছে...`;
                     statusText.style.color = "#4CAF50";
 
-                    // ৪. TBC Webhook-এ JSON Payload সহ POST Request পাঠানো
+                    // ৪. TBC Webhook-এ JSON ডাটা পাঠানো
                     try {
                         const payload = {
                             user_id: tgUserId,
@@ -168,7 +190,7 @@
                             body: JSON.stringify(payload)
                         });
 
-                        // কাজ শেষ, বট বন্ধ করে দিবে
+                        // ২ সেকেন্ড পর অটোমেটিক মিনি অ্যাপ বন্ধ হয়ে যাবে
                         setTimeout(() => {
                             tg.close();
                         }, 2000);
@@ -183,15 +205,15 @@
                     statusText.innerText = "❌ ট্রানজেকশন আইডি পাওয়া যায়নি!";
                     statusText.style.color = "#ff4d4d";
                     verifyBtn.disabled = false;
-                    verifyBtn.innerText = "রিকোয়েস্ট করুন";
+                    verifyBtn.innerText = "ভেরিফাই করুন";
                 }
 
             } catch (error) {
                 console.error(error);
-                statusText.innerText = "⚠️ সার্ভার এরর। আবার চেষ্টা করুন।";
+                statusText.innerText = "⚠️ ফায়ারবেস সার্ভার এরর। আবার চেষ্টা করুন।";
                 statusText.style.color = "#ff4d4d";
                 verifyBtn.disabled = false;
-                verifyBtn.innerText = "রিকোয়েস্ট করুন";
+                verifyBtn.innerText = "ভেরিফাই করুন";
             }
         });
     </script>
