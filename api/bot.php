@@ -9,7 +9,7 @@ define('DB_HOST', 'db.eewmopahvxahogfegpcg.supabase.co');
 define('DB_PORT', '5432');
 define('DB_NAME', 'postgres');
 define('DB_USER', 'postgres');
-define('DB_PASS', 'gajarbotol.'); // 👈 এখানে আপনার সুপাবেস পাসওয়ার্ড দিন
+define('DB_PASS', 'Gajarbotol.'); // 👈 এখানে আপনার সুপাবেস পাসওয়ার্ড দিন
 
 function sendTelegramMessage($chat_id, $text, $reply_markup = null) {
     $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/sendMessage";
