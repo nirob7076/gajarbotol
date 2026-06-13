@@ -4,12 +4,12 @@ define('BOT_TOKEN', '8984011233:AAE26EifT8xVpwqduXYfQzR6EBUWR5FpXlo');
 define('ADMIN_ID', '8357251736');
 define('BOT_USERNAME', 'easy_to_use5bot'); 
 
-// ২. সুপাবেস ডাটাবেইজের তথ্য
-define('DB_HOST', 'db.eewmopahvxahogfegpcg.supabase.co');
-define('DB_PORT', '5432');
+// ২. সুপাবেস ডাটাবেইজের নতুন তথ্য (Pooler Connection)
+define('DB_HOST', 'aws-1-ap-northeast-1.pooler.supabase.com');
+define('DB_PORT', '6543');
 define('DB_NAME', 'postgres');
-define('DB_USER', 'postgres');
-define('DB_PASS', 'Gajarbotol.'); // 👈 এখানে আপনার সুপাবেস পাসওয়ার্ড দিন
+define('DB_USER', 'postgres.eewmopahvxahogfegpcg');
+define('DB_PASS', 'gajarbotol.'); // 👈 এখানে আপনার সুপাবেস পাসওয়ার্ড দিন
 
 function sendTelegramMessage($chat_id, $text, $reply_markup = null) {
     $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/sendMessage";
@@ -24,7 +24,7 @@ function sendTelegramMessage($chat_id, $text, $reply_markup = null) {
     file_get_contents($url . '?' . http_build_query($data));
 }
 
-// PostgreSQL (Supabase) ডাটাবেইজ কানেকশন
+// PostgreSQL (Supabase Pooler) ডাটাবেইজ কানেকশন
 try {
     $dsn = "pgsql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME;
     $pdo = new PDO($dsn, DB_USER, DB_PASS);
