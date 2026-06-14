@@ -3,7 +3,11 @@
 define('BOT_TOKEN', '8984011233:AAE26EifT8xVpwqduXYfQzR6EBUWR5FpXlo'); 
 define('ADMIN_ID', '8357251736');
 define('BOT_USERNAME', 'easy_to_use5bot'); 
-define('MUST_JOIN_CHANNEL', '@Owner_zenitsu'); // 👈 আপনার চ্যানেলের ইউজারনেম দিন (অবশ্যই বটকে চ্যানেলের এডমিন বানাবেন)
+
+// 👇 এখানে চ্যানেলের ইউজারনেম (পাবলিক হলে @সহ) অথবা প্রাইভেট হলে ID (-10012345678) দিন
+define('MUST_JOIN_CHANNEL', '@Owner_zenitsu'); 
+// 👇 এখানে আপনার চ্যানেলের জয়েন লিংকটি হুবহু দিন
+define('CHANNEL_LINK', 'https://t.me/Owner_zenitsu'); 
 
 // ২. সুপাবেস ডাটাবেইজ
 define('DB_HOST', 'aws-1-ap-northeast-1.pooler.supabase.com');
@@ -12,12 +16,16 @@ define('DB_NAME', 'postgres');
 define('DB_USER', 'postgres.eewmopahvxahogfegpcg');
 define('DB_PASS', 'gajarbotol.'); // 👈 আপনার পাসওয়ার্ড
 
+// স্পিড বাড়ানোর জন্য cURL অপ্টিমাইজ করা হয়েছে
 function apiRequest($method, $data = []) {
     $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/" . $method;
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
+    curl_setopt($ch, CURLOPT_TIMEOUT, 10); // সর্বোচ্চ ১০ সেকেন্ড অপেক্ষা করবে
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); // SSL ভেরিফাই বন্ধ করে স্পিড বাড়ানো হয়েছে
     $res = curl_exec($ch);
     curl_close($ch);
     return json_decode($res, true);
@@ -29,17 +37,22 @@ function sendMsg($chat_id, $text, $reply_markup = null) {
     apiRequest('sendMessage', $data);
 }
 
-function checkJoined($chat_id, $channel) {
-    $res = apiRequest('getChatMember', ['chat_id' => $channel, 'user_id' => $chat_id]);
+// এখানে $chat_id এর বদলে $user_id ব্যবহার করা হয়েছে
+function checkJoined($user_id, $channel) {
+    $res = apiRequest('getChatMember', ['chat_id' => $channel, 'user_id' => $user_id]);
     $status = $res['result']['status'] ?? 'left';
     return in_array($status, ['member', 'administrator', 'creator']);
 }
 
-// Database Connection
+// Database Connection with Timeout Optimization
 try {
     $dsn = "pgsql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME;
-    $pdo = new PDO($dsn, DB_USER, DB_PASS);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $options = [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_TIMEOUT => 5, // ডাটাবেইজ কানেক্ট হতে দেরি হলে দ্রুত বাতিল করবে
+        PDO::ATTR_PERSISTENT => true // ডাটাবেইজ কানেকশন দ্রুত করার জন্য
+    ];
+    $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
 } catch (PDOException $e) {
     die("Database Connection Error");
 }
@@ -64,12 +77,14 @@ $main_menu = [
 ];
 $cancel_menu = ['keyboard' => [[['text' => '❌ ক্যানসেল']]], 'resize_keyboard' => true];
 
+// 👇 Chat ID এবং User ID আলাদা করা হয়েছে (বাগ ফিক্স)
 $chat_id = $update['message']['chat']['id'] ?? $update['callback_query']['message']['chat']['id'] ?? null;
+$user_id = $update['message']['from']['id'] ?? $update['callback_query']['from']['id'] ?? null;
 $text = $update['message']['text'] ?? null;
 $callback_data = $update['callback_query']['data'] ?? null;
 $callback_id = $update['callback_query']['id'] ?? null;
 
-if (!$chat_id) exit;
+if (!$chat_id || !$user_id) exit;
 
 // Get or Create User
 $stmt = $pdo->prepare("SELECT * FROM users WHERE chat_id = ?");
@@ -97,7 +112,7 @@ if ($callback_data) {
     apiRequest('answerCallbackQuery', ['callback_query_id' => $callback_id]);
 
     if ($callback_data == 'check_join') {
-        if (checkJoined($chat_id, MUST_JOIN_CHANNEL)) {
+        if (checkJoined($user_id, MUST_JOIN_CHANNEL)) { // 👈 $user_id পাস করা হয়েছে
             // Process Referral if pending
             if ($user['referred_by']) {
                 $stmt = $pdo->prepare("SELECT chat_id FROM users WHERE unique_code = ?");
@@ -131,8 +146,7 @@ if ($callback_data) {
         $task = $stmt->fetch();
         
         if ($task) {
-            if (checkJoined($chat_id, $task['channel_username'])) {
-                // Check if already rewarded
+            if (checkJoined($user_id, $task['channel_username'])) { // 👈 $user_id পাস করা হয়েছে
                 $check = $pdo->prepare("SELECT * FROM user_tasks WHERE chat_id = ? AND task_id = ?");
                 $check->execute([(string)$chat_id, $task_id]);
                 if (!$check->fetch()) {
@@ -152,11 +166,11 @@ if ($callback_data) {
 
 // ========== TEXT MESSAGE HANDLING ==========
 if ($text) {
-    // 1. Force Join Check (except if user is cancelling)
-    if ($text != '❌ ক্যানসেল' && !checkJoined($chat_id, MUST_JOIN_CHANNEL)) {
+    // Force Join Check 
+    if ($text != '❌ ক্যানসেল' && !checkJoined($user_id, MUST_JOIN_CHANNEL)) { // 👈 $user_id পাস করা হয়েছে
         $join_kb = [
             'inline_keyboard' => [
-                [['text' => '🔗 চ্যানেল জয়েন করুন', 'url' => 'https://t.me/' . str_replace('@', '', MUST_JOIN_CHANNEL)]],
+                [['text' => '🔗 চ্যানেল জয়েন করুন', 'url' => CHANNEL_LINK]], // 👈 লিংক ফিক্স করা হয়েছে
                 [['text' => '✅ চেক করুন', 'callback_data' => 'check_join']]
             ]
         ];
@@ -172,7 +186,7 @@ if ($text) {
     }
 
     // 3. State Machine (Waiting for input)
-    $state = $user['state'];
+    $state = $user['state'] ?? 'none';
 
     if ($state == 'wd_number') {
         $temp_data['phone'] = $text;
@@ -243,15 +257,16 @@ if ($text) {
     }
     
     elseif ($text == '📋 টাস্ক') {
-        // Find 1 task the user hasn't done
         $stmt = $pdo->prepare("SELECT * FROM tasks WHERE id NOT IN (SELECT task_id FROM user_tasks WHERE chat_id = ?) ORDER BY id DESC LIMIT 1");
         $stmt->execute([(string)$chat_id]);
         $task = $stmt->fetch();
         
         if ($task) {
+            // Task link fix
+            $task_link = (strpos($task['channel_username'], '@') === 0) ? 'https://t.me/' . ltrim($task['channel_username'], '@') : $task['channel_username'];
             $task_kb = [
                 'inline_keyboard' => [
-                    [['text' => '🔗 চ্যানেলে জয়েন করুন', 'url' => 'https://t.me/' . str_replace('@', '', $task['channel_username'])]],
+                    [['text' => '🔗 চ্যানেলে জয়েন করুন', 'url' => $task_link]],
                     [['text' => '✅ চেক করুন', 'callback_data' => 'check_task_' . $task['id']]]
                 ]
             ];
